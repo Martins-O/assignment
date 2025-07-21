@@ -9,42 +9,66 @@ function App() {
   const [currentMessage, setCurrentMessage] = useState("");
   const [isGetting, setIsGetting] = useState(false);
   const [isSetting, setIsSetting] = useState(false);
+  const [walletAddress, setWalletAddress] = useState("");
   const [snackbar, setSnackbar] = useState({
     open: false,
     message: "",
     type: "error" // 'error' or 'success'
   });
 
-  // Close snackbar after timeout
+  // Check if wallet is connected on component mount
   useEffect(() => {
-    if (snackbar.open) {
-      const timer = setTimeout(() => {
-        setSnackbar(prev => ({ ...prev, open: false }));
-      }, 6000);
-      return () => clearTimeout(timer);
-    }
-  }, [snackbar.open]);
+    checkWalletConnection();
+    getMessage();
+  }, []);
 
-  async function requestAccount() {
-    await window.ethereum.request({ method: 'eth_requestAccounts' });
-  }
+  const checkWalletConnection = async () => {
+    if (window.ethereum) {
+      try {
+        const accounts = await window.ethereum.request({ method: 'eth_accounts' });
+        if (accounts.length > 0) {
+          setWalletAddress(accounts[0]);
+        }
+      } catch (error) {
+        console.error("Error checking wallet connection:", error);
+      }
+    }
+  };
+
+  const connectWallet = async () => {
+    if (!window.ethereum) {
+      showError({ message: "MetaMask not detected. Please install MetaMask." });
+      return;
+    }
+
+    try {
+      const accounts = await window.ethereum.request({ 
+        method: 'eth_requestAccounts' 
+      });
+      setWalletAddress(accounts[0]);
+      showSuccess("Wallet connected successfully!");
+    } catch (error) {
+      console.error("Error connecting wallet:", error);
+      showError(error);
+    }
+  };
+
+  const disconnectWallet = () => {
+    setWalletAddress("");
+    showSuccess("Wallet disconnected");
+  };
 
   const showError = (error) => {
     let message = "An unknown error occurred";
     
-    // Handle common Ethereum errors
     if (error.code === 4001) {
       message = "Transaction rejected by user";
     } else if (error.code === -32602) {
       message = "Invalid parameters";
     } else if (error.reason) {
-      message = error.reason;
-      // Clean up Solidity error messages
-      message = message.replace("execution reverted: ", "");
+      message = error.reason.replace("execution reverted: ", "");
     } else if (error.message) {
-      message = error.message;
-      // Clean up MetaMask errors
-      message = message.replace("MetaMask Tx Signature: ", "");
+      message = error.message.replace("MetaMask Tx Signature: ", "");
     }
 
     setSnackbar({
@@ -89,21 +113,21 @@ function App() {
         return;
       }
 
-      if (window.ethereum) {
-        setIsSetting(true);
-        await requestAccount();
-        const provider = new ethers.BrowserProvider(window.ethereum);
-        const signer = await provider.getSigner();
-        const contract = new ethers.Contract(contractAddress, abi, signer);
-
-        const tx = await contract.setMessage(text); 
-        await tx.wait();
-        await getMessage();
-        setText("");
-        showSuccess("Message successfully saved to blockchain!");
-      } else {
-        showError({ message: "MetaMask not found. Please install MetaMask." });
+      if (!walletAddress) {
+        showError({ message: "Please connect your wallet first." });
+        return;
       }
+
+      setIsSetting(true);
+      const provider = new ethers.BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
+      const contract = new ethers.Contract(contractAddress, abi, signer);
+
+      const tx = await contract.setMessage(text); 
+      await tx.wait();
+      await getMessage();
+      setText("");
+      showSuccess("Message successfully saved to blockchain!");
     } catch (error) {
       console.error("Error setting message:", error);
       showError(error);
@@ -112,12 +136,37 @@ function App() {
     }
   };
 
-  useEffect(() => {
-    getMessage();
-  }, []);
+  const formatWalletAddress = (address) => {
+    if (!address) return "";
+    return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;
+  };
 
   return (
     <div style={styles.container}>
+      {/* Wallet Connection Button */}
+      <div style={styles.walletContainer}>
+        {walletAddress ? (
+          <div style={styles.connectedWallet}>
+            <span style={styles.walletAddress}>
+              {formatWalletAddress(walletAddress)}
+            </span>
+            <button 
+              onClick={disconnectWallet}
+              style={styles.disconnectButton}
+            >
+              Disconnect
+            </button>
+          </div>
+        ) : (
+          <button 
+            onClick={connectWallet}
+            style={styles.connectButton}
+          >
+            Connect Wallet
+          </button>
+        )}
+      </div>
+
       <div style={styles.content}>
         <h1 style={styles.header}>Blockchain Message Board</h1>
         
@@ -190,13 +239,13 @@ function App() {
                 <path fill="currentColor" d="M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z" />
               </svg>
             )}
-            <span>{snackbar.message}</span>
+            <span style={styles.snackbarMessage}>{snackbar.message}</span>
           </div>
           <button 
             onClick={() => setSnackbar(prev => ({ ...prev, open: false }))}
             style={styles.snackbarClose}
           >
-            <svg viewBox="0 0 24 24" width="20" height="20">
+            <svg viewBox="0 0 24 24" width="16" height="16">
               <path fill="currentColor" d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
             </svg>
           </button>
@@ -213,12 +262,60 @@ const styles = {
     alignItems: 'center',
     minHeight: '100vh',
     width: '100vw',
-    background: 'linear-gradient(135deg, #1a202c 0%, #2d3748 100%)',
+    background: 'linear-gradient(135deg, #299736ff 0%, #309e70ff 100%)',
     color: '#ffffff',
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif",
     padding: '0',
     margin: '0',
     overflow: 'hidden'
+  },
+  walletContainer: {
+    position: 'absolute',
+    top: '20px',
+    right: '20px',
+    zIndex: 10
+  },
+  connectButton: {
+    padding: '10px 16px',
+    backgroundColor: '#4299e1',
+    color: 'white',
+    border: 'none',
+    borderRadius: '8px',
+    cursor: 'pointer',
+    fontWeight: '600',
+    fontSize: '0.875rem',
+    transition: 'all 0.2s',
+    ':hover': {
+      backgroundColor: '#608db8ff'
+    }
+  },
+  connectedWallet: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+    backgroundColor: 'rgba(19, 230, 12, 0.1)',
+    padding: '8px 12px',
+    borderRadius: '8px',
+    border: '1px solid rgba(109, 8, 224, 0.3)'
+  },
+  walletAddress: {
+    fontSize: '0.875rem',
+    fontWeight: '500',
+    color: '#34ee0eff'
+  },
+  disconnectButton: {
+    padding: '6px 10px',
+    backgroundColor: 'transparent',
+    color: '#5fe53eff',
+    border: '1px solid #4012e4b7',
+    borderRadius: '6px',
+    cursor: 'pointer',
+    fontWeight: '500',
+    fontSize: '0.75rem',
+    transition: 'all 0.2s',
+    ':hover': {
+      backgroundColor: '#fef2f2'
+    }
   },
   content: {
     width: '90%',
@@ -418,6 +515,13 @@ styleSheet.insertRule(`
   @keyframes spin {
     0% { transform: rotate(0deg); }
     100% { transform: rotate(360deg); }
+  }
+`, styleSheet.cssRules.length);
+
+styleSheet.insertRule(`
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-20px); }
+    to { opacity: 1; transform: translateY(0); }
   }
 `, styleSheet.cssRules.length);
 
