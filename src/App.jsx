@@ -9,14 +9,62 @@ function App() {
   const [currentMessage, setCurrentMessage] = useState("");
   const [isGetting, setIsGetting] = useState(false);
   const [isSetting, setIsSetting] = useState(false);
+  const [snackbar, setSnackbar] = useState({
+    open: false,
+    message: "",
+    type: "error" // 'error' or 'success'
+  });
+
+  // Close snackbar after timeout
+  useEffect(() => {
+    if (snackbar.open) {
+      const timer = setTimeout(() => {
+        setSnackbar(prev => ({ ...prev, open: false }));
+      }, 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [snackbar.open]);
 
   async function requestAccount() {
     await window.ethereum.request({ method: 'eth_requestAccounts' });
   }
 
+  const showError = (error) => {
+    let message = "An unknown error occurred";
+    
+    // Handle common Ethereum errors
+    if (error.code === 4001) {
+      message = "Transaction rejected by user";
+    } else if (error.code === -32602) {
+      message = "Invalid parameters";
+    } else if (error.reason) {
+      message = error.reason;
+      // Clean up Solidity error messages
+      message = message.replace("execution reverted: ", "");
+    } else if (error.message) {
+      message = error.message;
+      // Clean up MetaMask errors
+      message = message.replace("MetaMask Tx Signature: ", "");
+    }
+
+    setSnackbar({
+      open: true,
+      message,
+      type: "error"
+    });
+  };
+
+  const showSuccess = (message) => {
+    setSnackbar({
+      open: true,
+      message,
+      type: "success"
+    });
+  };
+
   const getMessage = async () => {
     if (!window.ethereum) {
-      console.error("MetaMask not detected");
+      showError({ message: "MetaMask not detected. Please install MetaMask." });
       return;
     }
 
@@ -28,7 +76,7 @@ function App() {
       setCurrentMessage(message);
     } catch (error) {
       console.error("Error fetching message:", error);
-      alert(error.message || error);
+      showError(error);
     } finally {
       setIsGetting(false);
     }
@@ -37,7 +85,7 @@ function App() {
   const handleSet = async () => {
     try {
       if (!text) {
-        alert("Please enter a message before setting.");
+        showError({ message: "Please enter a message before setting." });
         return;
       }
 
@@ -52,12 +100,13 @@ function App() {
         await tx.wait();
         await getMessage();
         setText("");
+        showSuccess("Message successfully saved to blockchain!");
       } else {
-        console.error("MetaMask not found. Please install MetaMask.");
+        showError({ message: "MetaMask not found. Please install MetaMask." });
       }
     } catch (error) {
       console.error("Error setting message:", error);
-      alert(error.message || error);
+      showError(error);
     } finally {
       setIsSetting(false);
     }
@@ -124,11 +173,39 @@ function App() {
           </div>
         </div>
       </div>
+
+      {/* Snackbar Notification */}
+      {snackbar.open && (
+        <div style={{
+          ...styles.snackbar,
+          ...(snackbar.type === 'error' ? styles.snackbarError : styles.snackbarSuccess)
+        }}>
+          <div style={styles.snackbarContent}>
+            {snackbar.type === 'error' ? (
+              <svg style={styles.snackbarIcon} viewBox="0 0 24 24">
+                <path fill="currentColor" d="M12,2C17.53,2 22,6.47 22,12C22,17.53 17.53,22 12,22C6.47,22 2,17.53 2,12C2,6.47 6.47,2 12,2M15.59,7L12,10.59L8.41,7L7,8.41L10.59,12L7,15.59L8.41,17L12,13.41L15.59,17L17,15.59L13.41,12L17,8.41L15.59,7Z" />
+              </svg>
+            ) : (
+              <svg style={styles.snackbarIcon} viewBox="0 0 24 24">
+                <path fill="currentColor" d="M12 2C6.5 2 2 6.5 2 12S6.5 22 12 22 22 17.5 22 12 17.5 2 12 2M10 17L5 12L6.41 10.59L10 14.17L17.59 6.58L19 8L10 17Z" />
+              </svg>
+            )}
+            <span>{snackbar.message}</span>
+          </div>
+          <button 
+            onClick={() => setSnackbar(prev => ({ ...prev, open: false }))}
+            style={styles.snackbarClose}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20">
+              <path fill="currentColor" d="M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z" />
+            </svg>
+          </button>
+        </div>
+      )}
     </div>
   );
 }
 
-// Full-screen immersive styling
 const styles = {
   container: {
     display: 'flex',
@@ -275,6 +352,63 @@ const styles = {
     borderTop: '3px solid #4299e1',
     borderRadius: '50%',
     animation: 'spin 1s linear infinite'
+  },
+  snackbar: {
+    position: 'fixed',
+    top: '20px',
+    right: '20px',
+    padding: '12px 16px',
+    borderRadius: '8px',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    maxWidth: '350px',
+    width: 'auto',
+    boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+    zIndex: 1000,
+    animation: 'fadeIn 0.3s ease-out',
+    fontSize: '0.875rem'
+  },
+  snackbarError: {
+    backgroundColor: '#fef2f2',
+    color: '#b91c1c',
+    borderLeft: '3px solid #dc2626'
+  },
+  snackbarSuccess: {
+    backgroundColor: '#f0fdf4',
+    color: '#166534',
+    borderLeft: '3px solid #16a34a'
+  },
+  snackbarContent: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    fontWeight: '500',
+    flex: 1
+  },
+  snackbarMessage: {
+    maxWidth: '280px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+  },
+  snackbarIcon: {
+    width: '18px',
+    height: '18px',
+    flexShrink: 0
+  },
+  snackbarClose: {
+    background: 'none',
+    border: 'none',
+    cursor: 'pointer',
+    padding: '0',
+    marginLeft: '12px',
+    color: 'inherit',
+    opacity: '0.7',
+    transition: 'opacity 0.2s',
+    ':hover': {
+      opacity: '1'
+    }
   }
 };
 
